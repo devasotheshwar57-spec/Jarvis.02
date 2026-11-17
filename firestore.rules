@@ -1,0 +1,181 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- GLOBAL HELPERS ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidLanguage(code) {
+      return code in ['en', 'hi', 'te'];
+    }
+
+    // --- ENTITY VALIDATION BLUEPRINTS ---
+    function isValidSession(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             data.lastMessage is string && data.lastMessage.size() <= 300 &&
+             data.languageCode is string && isValidLanguage(data.languageCode) &&
+             data.messageCount is int && data.messageCount >= 0 && data.messageCount <= 10000;
+    }
+
+    function isValidMessage(data, sessionId) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.sessionId is string && data.sessionId == sessionId &&
+             data.role is string && data.role in ['user', 'model'] &&
+             data.text is string && data.text.size() >= 1 && data.text.size() <= 16000 &&
+             data.hasImage is bool &&
+             data.languageCode is string && isValidLanguage(data.languageCode);
+    }
+
+    function isValidNote(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             data.content is string && data.content.size() <= 5000 &&
+             data.pinned is bool;
+    }
+
+    function isValidReminder(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+             data.dueAtMillis is int && data.dueAtMillis >= 0 &&
+             data.completed is bool;
+    }
+
+    function isValidSettings(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.languageCode is string && isValidLanguage(data.languageCode) &&
+             data.autoSpeak is bool &&
+             (data.speechRate is float || data.speechRate is int) && data.speechRate >= 0.5 && data.speechRate <= 2.0 &&
+             (data.speechPitch is float || data.speechPitch is int) && data.speechPitch >= 0.5 && data.speechPitch <= 2.0;
+    }
+
+    // --- USER-SCOPED COLLECTIONS ---
+    match /users/{userId}/sessions/{sessionId} {
+      allow get: if isOwner(userId) && isValidId(sessionId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(sessionId) &&
+                       incoming().keys().hasAll(['userId', 'title', 'lastMessage', 'languageCode', 'messageCount', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'title', 'lastMessage', 'languageCode', 'messageCount', 'createdAt', 'updatedAt']) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidSession(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(sessionId) &&
+                       isValidSession(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'lastMessage', 'languageCode', 'messageCount', 'updatedAt']);
+
+      allow delete: if isOwner(userId) && isValidId(sessionId);
+
+      match /messages/{messageId} {
+        allow get: if isOwner(userId) && isValidId(sessionId) && isValidId(messageId);
+        allow list: if isOwner(userId) && isValidId(sessionId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(sessionId) &&
+                         isValidId(messageId) &&
+                         incoming().keys().hasAll(['userId', 'sessionId', 'role', 'text', 'hasImage', 'languageCode', 'createdAt']) &&
+                         incoming().keys().hasOnly(['userId', 'sessionId', 'role', 'text', 'hasImage', 'languageCode', 'createdAt']) &&
+                         incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                         isValidMessage(incoming(), sessionId);
+
+        allow update: if false;
+        allow delete: if isOwner(userId) && isValidId(sessionId) && isValidId(messageId);
+      }
+    }
+
+    match /users/{userId}/notes/{noteId} {
+      allow get: if isOwner(userId) && isValidId(noteId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(noteId) &&
+                       incoming().keys().hasAll(['userId', 'title', 'content', 'pinned', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'title', 'content', 'pinned', 'createdAt', 'updatedAt']) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidNote(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(noteId) &&
+                       isValidNote(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'content', 'pinned', 'updatedAt']);
+
+      allow delete: if isOwner(userId) && isValidId(noteId);
+    }
+
+    match /users/{userId}/reminders/{reminderId} {
+      allow get: if isOwner(userId) && isValidId(reminderId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(reminderId) &&
+                       incoming().keys().hasAll(['userId', 'title', 'dueAtMillis', 'completed', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'title', 'dueAtMillis', 'completed', 'createdAt', 'updatedAt']) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidReminder(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(reminderId) &&
+                       isValidReminder(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'dueAtMillis', 'completed', 'updatedAt']);
+
+      allow delete: if isOwner(userId) && isValidId(reminderId);
+    }
+
+    match /users/{userId}/preferences/{prefId} {
+      allow get: if isOwner(userId) && isValidId(prefId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       prefId == 'settings' &&
+                       incoming().keys().hasAll(['userId', 'languageCode', 'autoSpeak', 'speechRate', 'speechPitch', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'languageCode', 'autoSpeak', 'speechRate', 'speechPitch', 'updatedAt']) &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidSettings(incoming());
+
+      allow update: if isOwner(userId) &&
+                       prefId == 'settings' &&
+                       isValidSettings(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['languageCode', 'autoSpeak', 'speechRate', 'speechPitch', 'updatedAt']);
+
+      allow delete: if isOwner(userId) && prefId == 'settings';
+    }
+  }
+}

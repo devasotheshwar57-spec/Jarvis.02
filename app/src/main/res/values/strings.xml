@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">Jarvis</string>
+    <string name="nav_assistant">Core</string>
+    <string name="nav_tools">Toolkit</string>
+    <string name="nav_history">Archive</string>
+    <string name="nav_settings">System</string>
+    <string name="mic_button_desc">Toggle voice command</string>
+    <string name="send_button_desc">Send message to Jarvis</string>
+    <string name="attach_photo_desc">Attach photo from gallery</string>
+    <string name="capture_camera_desc">Capture image with camera</string>
+    <string name="speak_response_desc">Speak response aloud</string>
+    <string name="stop_speaking_desc">Stop voice output</string>
+    <string name="sign_in_google">Sign in with Google</string>
+    <string name="sign_out">Sign Out</string>
+</resources>

@@ -1,0 +1,6 @@
+{
+  "name": "Jarvis",
+  "description": "Futuristic AI personal assistant with voice input/synthesis, English/Hindi/Telugu support, vision analysis, web search, calculator, and cloud-synced notes & reminders.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

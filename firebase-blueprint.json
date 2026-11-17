@@ -1,0 +1,206 @@
+{
+  "entities": {
+    "ChatSession": {
+      "title": "ChatSession",
+      "description": "A conversation session between the user and Jarvis AI.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the session owner."
+        },
+        "title": {
+          "type": "string",
+          "description": "Short display title of the chat session."
+        },
+        "lastMessage": {
+          "type": "string",
+          "description": "Preview of the most recent message in the session."
+        },
+        "languageCode": {
+          "type": "string",
+          "enum": ["en", "hi", "te"],
+          "description": "Selected assistant language code."
+        },
+        "messageCount": {
+          "type": "integer",
+          "description": "Total messages recorded in this session."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when session was created (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when session was last updated (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": ["userId", "title", "lastMessage", "languageCode", "messageCount", "createdAt", "updatedAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "An individual message within a Jarvis chat session.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the message owner."
+        },
+        "sessionId": {
+          "type": "string",
+          "description": "Parent session document ID."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "model"],
+          "description": "Author role of the message."
+        },
+        "text": {
+          "type": "string",
+          "description": "Message text content."
+        },
+        "hasImage": {
+          "type": "boolean",
+          "description": "Whether this message included an analyzed image."
+        },
+        "languageCode": {
+          "type": "string",
+          "enum": ["en", "hi", "te"],
+          "description": "Language code active for this message."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when message was sent (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": ["userId", "sessionId", "role", "text", "hasImage", "languageCode", "createdAt"]
+    },
+    "JarvisNote": {
+      "title": "JarvisNote",
+      "description": "A user-created note synced to Firestore.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the note owner."
+        },
+        "title": {
+          "type": "string",
+          "description": "Note title."
+        },
+        "content": {
+          "type": "string",
+          "description": "Note body content."
+        },
+        "pinned": {
+          "type": "boolean",
+          "description": "Whether the note is pinned."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when note was created (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when note was last updated (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": ["userId", "title", "content", "pinned", "createdAt", "updatedAt"]
+    },
+    "JarvisReminder": {
+      "title": "JarvisReminder",
+      "description": "A user reminder with optional scheduled timestamp.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the reminder owner."
+        },
+        "title": {
+          "type": "string",
+          "description": "Reminder description."
+        },
+        "dueAtMillis": {
+          "type": "integer",
+          "description": "Scheduled epoch time in milliseconds (0 if unscheduled)."
+        },
+        "completed": {
+          "type": "boolean",
+          "description": "Whether the reminder is completed."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when reminder was created (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when reminder was last updated (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": ["userId", "title", "dueAtMillis", "completed", "createdAt", "updatedAt"]
+    },
+    "JarvisSettings": {
+      "title": "JarvisSettings",
+      "description": "User preferences for Jarvis language and voice synthesis.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the settings owner."
+        },
+        "languageCode": {
+          "type": "string",
+          "enum": ["en", "hi", "te"],
+          "description": "Preferred conversation and speech language."
+        },
+        "autoSpeak": {
+          "type": "boolean",
+          "description": "Automatically speak AI replies via TextToSpeech."
+        },
+        "speechRate": {
+          "type": "number",
+          "description": "TTS speech rate multiplier (0.5 to 2.0)."
+        },
+        "speechPitch": {
+          "type": "number",
+          "description": "TTS pitch multiplier (0.5 to 2.0)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when settings were updated (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": ["userId", "languageCode", "autoSpeak", "speechRate", "speechPitch", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/sessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/ChatSession" },
+      "description": "User-scoped chat sessions."
+    },
+    "/users/{userId}/sessions/{sessionId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "User-scoped chat messages inside a session."
+    },
+    "/users/{userId}/notes/{noteId}": {
+      "schema": { "$ref": "#/entities/JarvisNote" },
+      "description": "User-scoped personal notes."
+    },
+    "/users/{userId}/reminders/{reminderId}": {
+      "schema": { "$ref": "#/entities/JarvisReminder" },
+      "description": "User-scoped reminders."
+    },
+    "/users/{userId}/preferences/{prefId}": {
+      "schema": { "$ref": "#/entities/JarvisSettings" },
+      "description": "User-scoped assistant preferences (document ID 'settings')."
+    }
+  }
+}
