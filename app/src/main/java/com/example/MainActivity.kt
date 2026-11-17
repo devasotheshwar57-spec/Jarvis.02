@@ -1,5 +1,6 @@
 package com.example
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -63,6 +64,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.data.ai.AiSpeedMode
 import com.example.data.ai.JarvisAiRepository
 import com.example.data.firebase.JarvisRepository
 import com.example.data.model.JarvisLanguage
@@ -173,6 +175,14 @@ private fun JarvisMainShell(currentUserId: String) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    val prefs = remember(context) {
+        context.applicationContext.getSharedPreferences("jarvis_local_prefs", Context.MODE_PRIVATE)
+    }
+    val initialSpeedMode = remember(prefs) {
+        val raw = prefs.getString("ai_speed_mode", AiSpeedMode.FAST.name)
+        AiSpeedMode.entries.firstOrNull { it.name == raw } ?: AiSpeedMode.FAST
+    }
+
     val viewModel: JarvisViewModel = viewModel(
         key = currentUserId,
         factory = viewModelFactory {
@@ -186,7 +196,11 @@ private fun JarvisMainShell(currentUserId: String) {
                     repository = JarvisRepository(db),
                     aiRepository = JarvisAiRepository(),
                     searchRepository = WebSearchRepository(),
-                    currentUserId = currentUserId
+                    currentUserId = currentUserId,
+                    initialSpeedMode = initialSpeedMode,
+                    onPersistSpeedMode = { mode ->
+                        prefs.edit().putString("ai_speed_mode", mode.name).apply()
+                    }
                 )
             }
         }

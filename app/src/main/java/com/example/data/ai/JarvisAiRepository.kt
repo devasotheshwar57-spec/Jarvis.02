@@ -15,10 +15,24 @@ import kotlinx.coroutines.withTimeout
 
 private const val TAG = "JarvisAiRepository"
 
+enum class AiSpeedMode(val modelName: String, val shortLabel: String, val displayLabel: String) {
+    FAST("gemini-3.5-flash-lite", "FAST", "Gemini 3.5 Flash-Lite (Ultra Fast)"),
+    BALANCED("gemini-3.8-flash", "PRO", "Gemini 3.8 Flash (Balanced)")
+}
+
 class JarvisAiRepository {
 
-    private val model by lazy {
-        Firebase.ai.generativeModel(modelName = "gemini-3.8-flash")
+    private val fastModel by lazy {
+        Firebase.ai.generativeModel(modelName = AiSpeedMode.FAST.modelName)
+    }
+
+    private val balancedModel by lazy {
+        Firebase.ai.generativeModel(modelName = AiSpeedMode.BALANCED.modelName)
+    }
+
+    private fun modelFor(speedMode: AiSpeedMode) = when (speedMode) {
+        AiSpeedMode.FAST -> fastModel
+        AiSpeedMode.BALANCED -> balancedModel
     }
 
     fun streamAssistantReply(
@@ -26,7 +40,8 @@ class JarvisAiRepository {
         userPrompt: String,
         image: Bitmap?,
         language: JarvisLanguage,
-        currentDateTimeText: String
+        currentDateTimeText: String,
+        speedMode: AiSpeedMode = AiSpeedMode.FAST
     ): Flow<String> = flow {
         val systemDirective = buildString {
             appendLine("You are JARVIS, a futuristic, hyper-intelligent personal AI assistant inspired by Iron Man's HUD AI.")
@@ -36,7 +51,7 @@ class JarvisAiRepository {
             appendLine("Do not invent real-time external sensor data or claim actions were executed on external accounts unless stated.")
         }
 
-        val recentHistory = history.takeLast(14).map { msg ->
+        val recentHistory = history.takeLast(10).map { msg ->
             content(role = if (msg.role == "model") "model" else "user") {
                 text(msg.text)
             }
@@ -70,7 +85,7 @@ class JarvisAiRepository {
             )
         }
 
-        val chat = model.startChat(history = chatHistory)
+        val chat = modelFor(speedMode).startChat(history = chatHistory)
         val accumulated = StringBuilder()
 
         try {
@@ -100,7 +115,8 @@ class JarvisAiRepository {
     fun streamWebSummary(
         query: String,
         searchSnippets: String,
-        language: JarvisLanguage
+        language: JarvisLanguage,
+        speedMode: AiSpeedMode = AiSpeedMode.FAST
     ): Flow<String> = flow {
         val prompt = buildString {
             appendLine("You are JARVIS. ${language.promptInstruction}")
@@ -113,7 +129,7 @@ class JarvisAiRepository {
         val accumulated = StringBuilder()
         try {
             withTimeout(60_000L) {
-                model.generateContentStream(prompt).collect { chunk ->
+                modelFor(speedMode).generateContentStream(prompt).collect { chunk ->
                     val chunkText = chunk.text.orEmpty()
                     if (chunkText.isNotEmpty()) {
                         accumulated.append(chunkText)

@@ -50,6 +50,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
@@ -96,6 +97,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
+import com.example.data.ai.AiSpeedMode
 import com.example.data.model.ChatMessage
 import com.example.data.model.JarvisLanguage
 import com.example.data.model.UiState
@@ -135,6 +137,8 @@ fun AssistantScreen(
 
     val messagesState by viewModel.messagesState.collectAsStateWithLifecycle()
     val aiTurnState by viewModel.aiTurnState.collectAsStateWithLifecycle()
+    val speedMode by viewModel.speedMode.collectAsStateWithLifecycle()
+    val pendingUserPrompt by viewModel.pendingUserPrompt.collectAsStateWithLifecycle()
     val attachedImage by viewModel.attachedImage.collectAsStateWithLifecycle()
     val settings by viewModel.settingsState.collectAsStateWithLifecycle()
 
@@ -459,6 +463,45 @@ fun AssistantScreen(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Quick AI speed toggle (FAST / PRO)
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (speedMode == AiSpeedMode.FAST) {
+                            NeonCyan.copy(alpha = 0.16f)
+                        } else {
+                            HoloPanelElevated
+                        },
+                        border = BorderStroke(
+                            1.dp,
+                            if (speedMode == AiSpeedMode.FAST) NeonCyan else HudAmber.copy(alpha = 0.7f)
+                        ),
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { viewModel.toggleSpeedMode() }
+                            .testTag("speed_mode_cycle_button")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Bolt,
+                                contentDescription = "Toggle AI speed mode",
+                                tint = if (speedMode == AiSpeedMode.FAST) NeonCyan else HudAmber,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = speedMode.shortLabel,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (speedMode == AiSpeedMode.FAST) NeonCyan else HudAmber
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
                     // Quick language cycle pill
                     Surface(
                         shape = RoundedCornerShape(10.dp),
@@ -478,7 +521,7 @@ fun AssistantScreen(
                             .testTag("language_cycle_button")
                     ) {
                         Text(
-                            text = "${activeLanguage.code.uppercase()} • ${activeLanguage.nativeLabel}",
+                            text = activeLanguage.code.uppercase(),
                             style = MaterialTheme.typography.labelMedium,
                             color = NeonCyan,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
@@ -521,8 +564,9 @@ fun AssistantScreen(
                 .widthIn(max = 720.dp),
             contentAlignment = Alignment.Center
         ) {
+            val isAiActive = aiTurnState is AiTurnState.Thinking || aiTurnState is AiTurnState.Streaming
             when {
-                messagesState is UiState.Loading -> {
+                messagesState is UiState.Loading && !isAiActive -> {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         ArcReactorVisualizer(mode = VisualizerMode.THINKING, size = 150.dp)
                         Spacer(modifier = Modifier.height(12.dp))
@@ -534,7 +578,7 @@ fun AssistantScreen(
                     }
                 }
 
-                messages.isEmpty() && aiTurnState !is AiTurnState.Streaming -> {
+                messages.isEmpty() && !isAiActive -> {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -637,6 +681,24 @@ fun AssistantScreen(
                                     )
                                 }
                             )
+                        }
+
+                        val optimisticPrompt = pendingUserPrompt
+                        val alreadyInMessages = optimisticPrompt != null &&
+                            messages.lastOrNull()?.let { it.role == "user" && it.text == optimisticPrompt } == true
+                        if (optimisticPrompt != null && !alreadyInMessages) {
+                            item(key = "pending_user_bubble") {
+                                ChatMessageBubble(
+                                    message = ChatMessage(
+                                        id = "pending_user",
+                                        role = "user",
+                                        text = optimisticPrompt
+                                    ),
+                                    onSpeak = {},
+                                    onCopy = {},
+                                    onSaveNote = {}
+                                )
+                            }
                         }
 
                         if (aiTurnState is AiTurnState.Thinking) {

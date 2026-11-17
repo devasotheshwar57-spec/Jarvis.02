@@ -83,6 +83,58 @@ class JarvisRepository(
             .catch { error -> handleFlowError(error, path, OperationType.LIST, userId) }
     }
 
+    fun newSessionId(userId: String): String =
+        db.collection("users").document(userId).collection("sessions").document().id
+
+    suspend fun createSessionWithFirstMessage(
+        userId: String,
+        sessionId: String,
+        title: String,
+        text: String,
+        hasImage: Boolean,
+        language: JarvisLanguage
+    ): Result<Unit> {
+        val sessionRef = db.collection("users").document(userId)
+            .collection("sessions").document(sessionId)
+        val msgRef = sessionRef.collection("messages").document()
+        return try {
+            val uid = requireMatchedUserId(userId)
+            require(sessionId.isNotBlank()) { "Session ID cannot be blank." }
+            val cleanTitle = title.trim().ifEmpty { "New Briefing" }.take(120)
+            val cleanText = text.trim().ifEmpty { "[Empty]" }.take(16000)
+
+            val sessionPayload = mapOf(
+                "userId" to uid,
+                "title" to cleanTitle,
+                "lastMessage" to cleanText.replace("\n", " ").take(300),
+                "languageCode" to language.code,
+                "messageCount" to 1L,
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )
+            val msgPayload = mapOf(
+                "userId" to uid,
+                "sessionId" to sessionId,
+                "role" to "user",
+                "text" to cleanText,
+                "hasImage" to hasImage,
+                "languageCode" to language.code,
+                "createdAt" to FieldValue.serverTimestamp()
+            )
+
+            val batch = db.batch()
+            batch.set(sessionRef, sessionPayload)
+            batch.set(msgRef, msgPayload)
+            batch.commit().await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.CREATE, sessionRef.path)
+            Result.failure(e)
+        }
+    }
+
     suspend fun createSession(
         userId: String,
         title: String,

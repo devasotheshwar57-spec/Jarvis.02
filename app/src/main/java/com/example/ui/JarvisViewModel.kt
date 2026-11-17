@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.ai.AiSpeedMode
 import com.example.data.ai.JarvisAiRepository
 import com.example.data.firebase.JarvisRepository
 import com.example.data.model.ChatMessage
@@ -20,6 +21,7 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -69,7 +71,9 @@ class JarvisViewModel(
     private val repository: JarvisRepository,
     private val aiRepository: JarvisAiRepository,
     private val searchRepository: WebSearchRepository,
-    private val currentUserId: String
+    private val currentUserId: String,
+    initialSpeedMode: AiSpeedMode = AiSpeedMode.FAST,
+    private val onPersistSpeedMode: (AiSpeedMode) -> Unit = {}
 ) : ViewModel() {
 
     private val _activeSessionId = MutableStateFlow<String?>(null)
@@ -77,6 +81,12 @@ class JarvisViewModel(
 
     private val _aiTurnState = MutableStateFlow<AiTurnState>(AiTurnState.Idle)
     val aiTurnState: StateFlow<AiTurnState> = _aiTurnState.asStateFlow()
+
+    private val _speedMode = MutableStateFlow(initialSpeedMode)
+    val speedMode: StateFlow<AiSpeedMode> = _speedMode.asStateFlow()
+
+    private val _pendingUserPrompt = MutableStateFlow<String?>(null)
+    val pendingUserPrompt: StateFlow<String?> = _pendingUserPrompt.asStateFlow()
 
     private val _attachedImage = MutableStateFlow<Bitmap?>(null)
     val attachedImage: StateFlow<Bitmap?> = _attachedImage.asStateFlow()
@@ -173,6 +183,20 @@ class JarvisViewModel(
             initialValue = JarvisSettings(userId = currentUserId)
         )
 
+    fun setSpeedMode(mode: AiSpeedMode) {
+        _speedMode.value = mode
+        onPersistSpeedMode(mode)
+    }
+
+    fun toggleSpeedMode() {
+        val next = if (_speedMode.value == AiSpeedMode.FAST) {
+            AiSpeedMode.BALANCED
+        } else {
+            AiSpeedMode.FAST
+        }
+        setSpeedMode(next)
+    }
+
     fun attachImage(bitmap: Bitmap?) {
         _attachedImage.value = bitmap
     }
@@ -181,6 +205,7 @@ class JarvisViewModel(
         activeAiJob?.cancel()
         _activeSessionId.value = null
         _aiTurnState.value = AiTurnState.Idle
+        _pendingUserPrompt.value = null
         _attachedImage.value = null
     }
 
@@ -188,6 +213,7 @@ class JarvisViewModel(
         activeAiJob?.cancel()
         _activeSessionId.value = sessionId
         _aiTurnState.value = AiTurnState.Idle
+        _pendingUserPrompt.value = null
     }
 
     fun clearBanner() {
@@ -210,45 +236,47 @@ class JarvisViewModel(
 
         val currentMessages = (messagesState.value as? UiState.Success)?.data.orEmpty()
         val activeLanguage = JarvisLanguage.fromCode(settingsState.value.languageCode)
+        val activeSpeedMode = _speedMode.value
         val displayPrompt = prompt.ifEmpty { "Analyze attached image" }
 
         activeAiJob?.cancel()
         activeAiJob = viewModelScope.launch {
+            _pendingUserPrompt.value = displayPrompt
             _aiTurnState.value = AiTurnState.Thinking
             _attachedImage.value = null
 
             try {
-                // Ensure we have a session ID in Firestore
-                var sessionId = _activeSessionId.value
-                val isFirstTurn = sessionId.isNullOrBlank()
+                val existingSessionId = _activeSessionId.value
+                val isFirstTurn = existingSessionId.isNullOrBlank()
+                val sessionId = existingSessionId ?: repository.newSessionId(currentUserId)
                 if (isFirstTurn) {
-                    val created = repository.createSession(
-                        userId = currentUserId,
-                        title = displayPrompt.take(48),
-                        language = activeLanguage
-                    )
-                    sessionId = created.getOrElse { err ->
-                        _aiTurnState.value = AiTurnState.Error(
-                            err.localizedMessage ?: "Failed to create chat session."
-                        )
-                        return@launch
-                    }
                     _activeSessionId.value = sessionId
                 }
-
                 val currentCount = currentMessages.size.toLong()
-                val appendUserResult = repository.appendMessage(
-                    userId = currentUserId,
-                    sessionId = sessionId!!,
-                    role = "user",
-                    text = displayPrompt,
-                    hasImage = image != null,
-                    language = activeLanguage,
-                    updatedTitle = if (currentCount == 0L) displayPrompt.take(48) else null,
-                    newMessageCount = currentCount + 1L
-                )
-                if (appendUserResult.isFailure) {
-                    _bannerMessage.value = "Message saved locally; cloud sync encountered an error."
+
+                // Persist user turn concurrently so AI streaming starts immediately with 0ms Firestore wait
+                val userPersistDeferred = async {
+                    if (isFirstTurn) {
+                        repository.createSessionWithFirstMessage(
+                            userId = currentUserId,
+                            sessionId = sessionId,
+                            title = displayPrompt.take(48),
+                            text = displayPrompt,
+                            hasImage = image != null,
+                            language = activeLanguage
+                        )
+                    } else {
+                        repository.appendMessage(
+                            userId = currentUserId,
+                            sessionId = sessionId,
+                            role = "user",
+                            text = displayPrompt,
+                            hasImage = image != null,
+                            language = activeLanguage,
+                            updatedTitle = if (currentCount == 0L) displayPrompt.take(48) else null,
+                            newMessageCount = currentCount + 1L
+                        )
+                    }
                 }
 
                 val nowText = SimpleDateFormat("EEEE, MMM d, yyyy 'at' h:mm:ss a z", Locale.getDefault())
@@ -260,31 +288,43 @@ class JarvisViewModel(
                     userPrompt = displayPrompt,
                     image = image,
                     language = activeLanguage,
-                    currentDateTimeText = nowText
+                    currentDateTimeText = nowText,
+                    speedMode = activeSpeedMode
                 ).collect { accumulated ->
                     finalReply = accumulated
                     _aiTurnState.value = AiTurnState.Streaming(accumulated)
                 }
 
+                val userPersistResult = userPersistDeferred.await()
+                if (userPersistResult.isFailure) {
+                    _bannerMessage.value = "Message saved locally; cloud sync encountered an error."
+                }
+
                 if (finalReply.isNotBlank()) {
-                    repository.appendMessage(
-                        userId = currentUserId,
-                        sessionId = sessionId,
-                        role = "model",
-                        text = finalReply,
-                        hasImage = false,
-                        language = activeLanguage,
-                        newMessageCount = currentCount + 2L
-                    )
+                    if (userPersistResult.isSuccess) {
+                        repository.appendMessage(
+                            userId = currentUserId,
+                            sessionId = sessionId,
+                            role = "model",
+                            text = finalReply,
+                            hasImage = false,
+                            language = activeLanguage,
+                            newMessageCount = currentCount + 2L
+                        )
+                    }
+                    _pendingUserPrompt.value = null
                     _aiTurnState.value = AiTurnState.Idle
                     onCompletedReply(finalReply)
                 } else {
+                    _pendingUserPrompt.value = null
                     _aiTurnState.value = AiTurnState.Error("Jarvis returned an empty response.")
                 }
             } catch (e: CancellationException) {
+                _pendingUserPrompt.value = null
                 throw e
             } catch (e: Exception) {
                 Log.e(TAG, "sendMessage failed", e)
+                _pendingUserPrompt.value = null
                 _aiTurnState.value = AiTurnState.Error(
                     e.localizedMessage ?: "Unable to reach Jarvis AI right now."
                 )
@@ -454,7 +494,8 @@ class JarvisViewModel(
                 aiRepository.streamWebSummary(
                     query = current.response.query,
                     searchSnippets = snippets,
-                    language = lang
+                    language = lang,
+                    speedMode = _speedMode.value
                 ).collect { text ->
                     val latest = _webSearchState.value as? WebSearchUiState.Success ?: return@collect
                     _webSearchState.value = latest.copy(aiSummary = text, isSummarizing = true)

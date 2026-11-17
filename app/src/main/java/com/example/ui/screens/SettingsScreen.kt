@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Memory
@@ -49,6 +50,7 @@ import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
 import com.example.auth.signOutUser
+import com.example.data.ai.AiSpeedMode
 import com.example.data.model.JarvisLanguage
 import com.example.ui.JarvisViewModel
 import com.example.ui.components.HudPanelCard
@@ -77,6 +79,7 @@ fun SettingsScreen(
     val credentialManager = remember { CredentialManager.create(context) }
 
     val settings by viewModel.settingsState.collectAsStateWithLifecycle()
+    val speedMode by viewModel.speedMode.collectAsStateWithLifecycle()
     val isSpeechAvailable by voiceManager.isSpeechAvailable.collectAsStateWithLifecycle()
     val isTtsReady by voiceManager.isTtsReady.collectAsStateWithLifecycle()
     val ttsNote by voiceManager.ttsLanguageNote.collectAsStateWithLifecycle()
@@ -155,6 +158,68 @@ fun SettingsScreen(
                                     modifier = Modifier
                                         .weight(1f)
                                         .testTag("settings_lang_${lang.code}")
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // AI Engine Speed Mode
+            item {
+                HudPanelCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Bolt, contentDescription = null, tint = NeonCyan)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "AI ENGINE SPEED",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = IceWhite
+                            )
+                        }
+                        Text(
+                            text = "Choose Ultra-Fast for lowest response latency or Balanced for deeper multi-step reasoning.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MutedSteel
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            AiSpeedMode.entries.forEach { mode ->
+                                val selected = mode == speedMode
+                                FilterChip(
+                                    selected = selected,
+                                    onClick = { viewModel.setSpeedMode(mode) },
+                                    label = {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text(mode.shortLabel, style = MaterialTheme.typography.titleMedium)
+                                            Text(
+                                                if (mode == AiSpeedMode.FAST) "Ultra Fast" else "Balanced",
+                                                style = MaterialTheme.typography.labelSmall
+                                            )
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = NeonCyan.copy(alpha = 0.22f),
+                                        selectedLabelColor = NeonCyan,
+                                        containerColor = HoloPanelElevated,
+                                        labelColor = MutedSteel
+                                    ),
+                                    border = FilterChipDefaults.filterChipBorder(
+                                        enabled = true,
+                                        selected = selected,
+                                        borderColor = HoloBorder,
+                                        selectedBorderColor = NeonCyan
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("settings_speed_${mode.name.lowercase()}")
                                 )
                             }
                         }
@@ -293,7 +358,7 @@ fun SettingsScreen(
                                 color = IceWhite
                             )
                         }
-                        DiagnosticRow("Firebase AI Logic (Gemini 3.8 Flash)", "ACTIVE", true)
+                        DiagnosticRow("Firebase AI (${speedMode.displayLabel})", "ACTIVE", true)
                         DiagnosticRow("Cloud Firestore Sync", "ENCRYPTED", true)
                         DiagnosticRow(
                             "Speech Recognition",
